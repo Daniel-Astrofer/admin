@@ -11,6 +11,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -31,7 +32,7 @@ import picocli.CommandLine.Model.CommandSpec;
             KeroseneJavaCli.Provider.class
         })
 public final class KeroseneJavaCli implements Runnable {
-    @Option(names = "--endpoint", required = true, description = "Core/KFE Admin API base URL")
+    @Option(names = "--endpoint", description = "Core/KFE Admin API base URL")
     String endpoint;
 
     @Option(names = "--output", defaultValue = "text", description = "text, json or json-pretty")
@@ -43,8 +44,13 @@ public final class KeroseneJavaCli implements Runnable {
     @Option(names = "--request-id", description = "Caller-provided request ID")
     String requestId;
 
-    @Option(names = "--profile", description = "Reserved profile name; profiles never store tokens")
+    @Option(names = "--profile", description = "Profile in ~/.config/kerosene/profiles.toml")
     String profile;
+
+    @Option(
+            names = "--allow-http-local",
+            description = "Allow HTTP only for localhost in a non-production environment")
+    boolean allowHttpLocal;
 
     @Option(names = "--verbose")
     boolean verbose;
@@ -55,17 +61,44 @@ public final class KeroseneJavaCli implements Runnable {
     }
 
     int get(String path) throws Exception {
-        URI uri = URI.create(endpoint.replaceAll("/+$", "") + path);
+        ProfileLoader.Profile loaded = profile == null ? null : ProfileLoader.load(profile);
+        String baseEndpoint = endpoint != null ? endpoint : loaded == null ? null : loaded.endpoint();
+        if (baseEndpoint == null || baseEndpoint.isBlank()) {
+            throw new IllegalArgumentException("--endpoint or --profile is required");
+        }
+        String environment = loaded == null
+                ? Optional.ofNullable(System.getenv("KEROSENE_ENVIRONMENT")).orElse("production")
+                : loaded.environment();
+        URI base = URI.create(baseEndpoint.replaceAll("/+$", ""));
+        boolean localHttp = "http".equalsIgnoreCase(base.getScheme())
+                && ("localhost".equalsIgnoreCase(base.getHost())
+                        || "127.0.0.1".equals(base.getHost()))
+                && !"production".equalsIgnoreCase(environment)
+                && allowHttpLocal;
+        if (!"https".equalsIgnoreCase(base.getScheme()) && !localHttp) {
+            throw new IllegalArgumentException(
+                    "Admin API requires HTTPS; local HTTP needs --allow-http-local and a non-production environment");
+        }
+        Optional<String> token = Optional.ofNullable(System.getenv("KEROSENE_ADMIN_TOKEN"))
+                .filter(value -> !value.isBlank());
+        if ("production".equalsIgnoreCase(environment)) {
+            if (token.isEmpty()) {
+                throw new IllegalArgumentException("Production requires a short-lived KEROSENE_ADMIN_TOKEN");
+            }
+            ProfileLoader.requirePrivateRegularFile("javax.net.ssl.keyStore");
+            ProfileLoader.requirePrivateRegularFile("javax.net.ssl.trustStore");
+        }
+        URI uri = URI.create(base + path);
         HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(timeout))
                 .header("Accept", "application/json")
                 .header("X-Request-Id", requestId());
-        Optional.ofNullable(System.getenv("KEROSENE_ADMIN_TOKEN"))
-                .filter(token -> !token.isBlank())
-                .ifPresent(token -> request.header("Authorization", "Bearer " + token));
-        HttpResponse<String> response = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(timeout))
-                .build()
+        token.ifPresent(value -> request.header("Authorization", "Bearer " + value));
+        HttpClient.Builder client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(timeout));
+        if ("production".equalsIgnoreCase(environment)) {
+            client.sslContext(TlsContextFactory.productionContext());
+        }
+        HttpResponse<String> response = client.build()
                 .send(request.GET().build(), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() / 100 != 2) {
             System.err.printf(
@@ -86,7 +119,7 @@ public final class KeroseneJavaCli implements Runnable {
 
     private String requestId() {
         return requestId == null || requestId.isBlank()
-                ? "jctl-" + ProcessHandle.current().pid()
+                ? "jctl-" + UUID.randomUUID()
                 : requestId;
     }
 
