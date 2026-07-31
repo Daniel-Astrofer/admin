@@ -10,6 +10,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -61,6 +63,17 @@ public final class KeroseneJavaCli implements Runnable {
     }
 
     int get(String path) throws Exception {
+        try {
+            return doGet(path);
+        } catch (Exception e) {
+            if (verbose) {
+                System.err.printf("[AUDIT] invalid_input error=%s%n", e.getMessage());
+            }
+            throw e;
+        }
+    }
+
+    private int doGet(String path) throws Exception {
         ProfileLoader.Profile loaded = profile == null ? null : ProfileLoader.load(profile);
         String baseEndpoint = endpoint != null ? endpoint : loaded == null ? null : loaded.endpoint();
         if (baseEndpoint == null || baseEndpoint.isBlank()) {
@@ -89,10 +102,16 @@ public final class KeroseneJavaCli implements Runnable {
             ProfileLoader.requirePrivateRegularFile("javax.net.ssl.trustStore");
         }
         URI uri = URI.create(base + path);
+        String reqId = requestId();
+        long startNanos = System.nanoTime();
+
         HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(timeout))
                 .header("Accept", "application/json")
-                .header("X-Request-Id", requestId());
+                .header("X-Request-Id", reqId);
+        if (verbose) {
+            System.err.printf("[VERBOSE] %s %s requestId=%s%n", "GET", uri, reqId);
+        }
         token.ifPresent(value -> request.header("Authorization", "Bearer " + value));
         HttpClient.Builder client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(timeout));
         if ("production".equalsIgnoreCase(environment)) {
@@ -100,24 +119,82 @@ public final class KeroseneJavaCli implements Runnable {
         }
         HttpResponse<String> response = client.build()
                 .send(request.GET().build(), HttpResponse.BodyHandlers.ofString());
+        long elapsedNanos = System.nanoTime() - startNanos;
         if (response.statusCode() / 100 != 2) {
             System.err.printf(
                     "Admin API rejected request: status=%d requestId=%s%n",
-                    response.statusCode(), requestId());
+                    response.statusCode(), reqId);
+            if (verbose) {
+                System.err.printf("[VERBOSE] status=%d requestId=%s elapsed=%dms%n",
+                        response.statusCode(), reqId, elapsedNanos / 1_000_000);
+                System.err.printf("[AUDIT] denial requestId=%s path=%s status=%d%n",
+                        reqId, path, response.statusCode());
+            }
             return 4;
         }
         ObjectMapper mapper = new ObjectMapper();
         JsonNode body = mapper.readTree(response.body());
-        if ("json".equals(output)) {
-            System.out.println(mapper.writeValueAsString(body));
-        } else {
-            mapper.enable(SerializationFeature.INDENT_OUTPUT);
-            System.out.println(mapper.writeValueAsString(body));
+        System.out.println(formatOutput(body, output));
+        if (verbose) {
+            System.err.printf("[VERBOSE] status=%d requestId=%s elapsed=%dms%n",
+                    response.statusCode(), reqId, elapsedNanos / 1_000_000);
+            System.err.printf("[AUDIT] success requestId=%s path=%s status=%d%n",
+                    reqId, path, response.statusCode());
         }
         return 0;
     }
 
-    private String requestId() {
+    static String formatOutput(JsonNode body, String outputMode) throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        if ("json".equals(outputMode)) {
+            return mapper.writeValueAsString(body);
+        } else if ("text".equals(outputMode)) {
+            StringBuilder sb = new StringBuilder();
+            formatText(body, sb, 0);
+            return sb.toString().stripTrailing();
+        } else {
+            mapper.enable(SerializationFeature.INDENT_OUTPUT);
+            return mapper.writeValueAsString(body);
+        }
+    }
+
+    private static void formatText(JsonNode node, StringBuilder sb, int depth) {
+        String indent = "  ".repeat(depth);
+        if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                String key = field.getKey();
+                JsonNode value = field.getValue();
+                sb.append(indent).append(key).append("=");
+                if (value.isObject()) {
+                    sb.append("{\n");
+                    formatText(value, sb, depth + 1);
+                    sb.append(indent).append("}");
+                } else if (value.isArray()) {
+                    sb.append("[").append(value.size()).append(" items]");
+                } else if (value.isTextual()) {
+                    sb.append(value.asText());
+                } else if (value.isNull()) {
+                    sb.append("null");
+                } else {
+                    sb.append(value.asText());
+                }
+                if (fields.hasNext()) {
+                    sb.append("\n");
+                }
+            }
+        } else if (node.isArray()) {
+            sb.append("[").append(node.size()).append(" items]");
+        } else if (node.isNull()) {
+            sb.append("null");
+        } else {
+            sb.append(node.asText());
+        }
+    }
+
+    // package-private for testing
+    String requestId() {
         return requestId == null || requestId.isBlank()
                 ? "jctl-" + UUID.randomUUID()
                 : requestId;
