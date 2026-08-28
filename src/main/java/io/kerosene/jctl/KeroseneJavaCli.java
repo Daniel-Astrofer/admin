@@ -25,7 +25,7 @@ import picocli.CommandLine.Model.CommandSpec;
         name = "kerosene-jctl",
         mixinStandardHelpOptions = true,
         version = "0.1.0",
-        description = "Kerosene Core administrative client",
+        description = "Kerosene administrative client",
         subcommands = {
             KeroseneJavaCli.Ledger.class,
             KeroseneJavaCli.P2p.class,

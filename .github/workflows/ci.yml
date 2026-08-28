@@ -1,0 +1,20 @@
+name: Admin CLI CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  java:
+    uses: Daniel-Astrofer/.github/.github/workflows/admin-cli-ci.yml@c20b6773eaf68590ac128403c6959e0c758af1e4
+    with:
+      language: java
+      package: kerosene-jctl
+
+  security:
+    uses: Daniel-Astrofer/.github/.github/workflows/security-scan.yml@2552ff2125c2d72accebe93804b8e139a52ded13

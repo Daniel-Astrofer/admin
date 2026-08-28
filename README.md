@@ -1,4 +1,10 @@
-# kerosene-jctl
+# Kerosene Admin (`kerosene-jctl`)
+
+This repository independently owns the Java administrative CLI. The executable
+name remains `kerosene-jctl` for command-line compatibility.
+
+Documentation: [English](docs/en/README.md) ·
+[Português (Brasil)](docs/pt-BR/README.md)
 
 Read-only administrative client for Core and KFE. It never connects directly to
 PostgreSQL or Redis. Authentication is supplied at execution time; profiles do
