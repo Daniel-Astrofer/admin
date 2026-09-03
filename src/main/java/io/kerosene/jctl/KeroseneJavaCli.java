@@ -2,7 +2,8 @@ package io.kerosene.jctl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import io.kerosene.jctl.application.AdminApiClient;
+import io.kerosene.jctl.presentation.OutputFormatter;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -10,8 +11,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Iterator;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -33,7 +32,7 @@ import picocli.CommandLine.Model.CommandSpec;
             KeroseneJavaCli.Reconciliation.class,
             KeroseneJavaCli.Provider.class
         })
-public final class KeroseneJavaCli implements Runnable {
+public final class KeroseneJavaCli implements Runnable, AdminApiClient {
     @Option(names = "--endpoint", description = "Core/KFE Admin API base URL")
     String endpoint;
 
@@ -62,7 +61,8 @@ public final class KeroseneJavaCli implements Runnable {
         picocli.CommandLine.usage(this, System.out);
     }
 
-    int get(String path) throws Exception {
+    @Override
+    public int get(String path) throws Exception {
         try {
             return doGet(path);
         } catch (Exception e) {
@@ -145,52 +145,7 @@ public final class KeroseneJavaCli implements Runnable {
     }
 
     static String formatOutput(JsonNode body, String outputMode) throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        if ("json".equals(outputMode)) {
-            return mapper.writeValueAsString(body);
-        } else if ("text".equals(outputMode)) {
-            StringBuilder sb = new StringBuilder();
-            formatText(body, sb, 0);
-            return sb.toString().stripTrailing();
-        } else {
-            mapper.enable(SerializationFeature.INDENT_OUTPUT);
-            return mapper.writeValueAsString(body);
-        }
-    }
-
-    private static void formatText(JsonNode node, StringBuilder sb, int depth) {
-        String indent = "  ".repeat(depth);
-        if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
-            while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> field = fields.next();
-                String key = field.getKey();
-                JsonNode value = field.getValue();
-                sb.append(indent).append(key).append("=");
-                if (value.isObject()) {
-                    sb.append("{\n");
-                    formatText(value, sb, depth + 1);
-                    sb.append(indent).append("}");
-                } else if (value.isArray()) {
-                    sb.append("[").append(value.size()).append(" items]");
-                } else if (value.isTextual()) {
-                    sb.append(value.asText());
-                } else if (value.isNull()) {
-                    sb.append("null");
-                } else {
-                    sb.append(value.asText());
-                }
-                if (fields.hasNext()) {
-                    sb.append("\n");
-                }
-            }
-        } else if (node.isArray()) {
-            sb.append("[").append(node.size()).append(" items]");
-        } else if (node.isNull()) {
-            sb.append("null");
-        } else {
-            sb.append(node.asText());
-        }
+        return OutputFormatter.format(body, outputMode);
     }
 
     // package-private for testing
