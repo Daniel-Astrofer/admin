@@ -19,7 +19,7 @@ Documentation: [English](docs/en/README.md) ·
 [CLI catalog](../reference/CLI_CATALOG.md) ·
 [quickstart](docs/QUICKSTART.md)
 
-Read-only administrative client for Core and KFE. It never connects directly to
+Administrative client for authenticated, audited Core APIs. It never connects directly to
 PostgreSQL or Redis. Authentication is supplied at execution time; profiles do
 not contain permanent tokens.
 
@@ -44,3 +44,7 @@ The example token command is illustrative; secrets must come from the selected
 secret manager and must not be pasted into profiles or committed environment
 files. Local HTTP requires both `KEROSENE_ENVIRONMENT=local` and
 `--allow-http-local`.
+
+Cell monitoring, offline package verification and recorded update plans are
+documented in the [CLI catalog](../reference/CLI_CATALOG.md). Plans do not deploy
+services; package verification checks exact deployment configuration bytes.

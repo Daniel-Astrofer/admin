@@ -2,8 +2,6 @@ package io.kerosene.jctl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.kerosene.jctl.application.AdminApiClient;
-import io.kerosene.jctl.presentation.OutputFormatter;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -30,10 +28,11 @@ import picocli.CommandLine.Model.CommandSpec;
             KeroseneJavaCli.P2p.class,
             KeroseneJavaCli.Onramp.class,
             KeroseneJavaCli.Reconciliation.class,
-            KeroseneJavaCli.Provider.class
+            KeroseneJavaCli.Provider.class,
+            CellCommands.class
         })
-public final class KeroseneJavaCli implements Runnable, AdminApiClient {
-    @Option(names = "--endpoint", description = "Core/KFE Admin API base URL")
+public final class KeroseneJavaCli implements Runnable {
+    @Option(names = "--endpoint", description = "Core Admin API base URL")
     String endpoint;
 
     @Option(names = "--output", defaultValue = "text", description = "text, json or json-pretty")
@@ -61,10 +60,9 @@ public final class KeroseneJavaCli implements Runnable, AdminApiClient {
         picocli.CommandLine.usage(this, System.out);
     }
 
-    @Override
     public int get(String path) throws Exception {
         try {
-            return doGet(path);
+            return request("GET", path, null);
         } catch (Exception e) {
             if (verbose) {
                 System.err.printf("[AUDIT] invalid_input error=%s%n", e.getMessage());
@@ -73,7 +71,9 @@ public final class KeroseneJavaCli implements Runnable, AdminApiClient {
         }
     }
 
-    private int doGet(String path) throws Exception {
+    public int post(String path, JsonNode body) throws Exception { return request("POST", path, body); }
+
+    private int request(String method, String path, JsonNode bodyToSend) throws Exception {
         ProfileLoader.Profile loaded = profile == null ? null : ProfileLoader.load(profile);
         String baseEndpoint = endpoint != null ? endpoint : loaded == null ? null : loaded.endpoint();
         if (baseEndpoint == null || baseEndpoint.isBlank()) {
@@ -83,6 +83,11 @@ public final class KeroseneJavaCli implements Runnable, AdminApiClient {
                 ? Optional.ofNullable(System.getenv("KEROSENE_ENVIRONMENT")).orElse("production")
                 : loaded.environment();
         URI base = URI.create(baseEndpoint.replaceAll("/+$", ""));
+        if (base.getHost() == null || base.getUserInfo() != null || base.getQuery() != null || base.getFragment() != null
+                || !(base.getPath().isEmpty() || base.getPath().equals("/"))) throw new IllegalArgumentException("Core HTTPS origin required");
+        if (path == null || !path.startsWith("/api/admin/") || path.startsWith("//")) throw new IllegalArgumentException("Only Core Admin API routes are allowed");
+        if (timeout < 1 || timeout > 120) throw new IllegalArgumentException("Timeout must be 1..120 seconds");
+        OutputFormatter.requireSupportedMode(output);
         boolean localHttp = "http".equalsIgnoreCase(base.getScheme())
                 && ("localhost".equalsIgnoreCase(base.getHost())
                         || "127.0.0.1".equals(base.getHost()))
@@ -110,15 +115,17 @@ public final class KeroseneJavaCli implements Runnable, AdminApiClient {
                 .header("Accept", "application/json")
                 .header("X-Request-Id", reqId);
         if (verbose) {
-            System.err.printf("[VERBOSE] %s %s requestId=%s%n", "GET", uri, reqId);
+            System.err.printf("[VERBOSE] %s %s requestId=%s%n", method, uri, reqId);
         }
         token.ifPresent(value -> request.header("Authorization", "Bearer " + value));
-        HttpClient.Builder client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(timeout));
+        HttpClient.Builder client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(timeout)).followRedirects(HttpClient.Redirect.NEVER);
         if ("production".equalsIgnoreCase(environment)) {
             client.sslContext(TlsContextFactory.productionContext());
         }
-        HttpResponse<String> response = client.build()
-                .send(request.GET().build(), HttpResponse.BodyHandlers.ofString());
+        if (bodyToSend != null) request.header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(new ObjectMapper().writeValueAsString(bodyToSend)));
+        else request.GET();
+        HttpResponse<String> response = client.build().send(request.build(), HttpResponse.BodyHandlers.ofString());
         long elapsedNanos = System.nanoTime() - startNanos;
         if (response.statusCode() / 100 != 2) {
             System.err.printf(
@@ -150,6 +157,7 @@ public final class KeroseneJavaCli implements Runnable, AdminApiClient {
 
     // package-private for testing
     String requestId() {
+        if (requestId != null && !requestId.isBlank() && !requestId.matches("[a-zA-Z0-9._-]{1,128}")) throw new IllegalArgumentException("Invalid request ID");
         return requestId == null || requestId.isBlank()
                 ? "jctl-" + UUID.randomUUID()
                 : requestId;
