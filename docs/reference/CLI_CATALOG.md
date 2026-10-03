@@ -1,7 +1,8 @@
 # Operator CLI catalog
 
-All network commands use the authenticated, audited **Core API**. There is no
-direct Bank/KFE/DB route selection and no shell deploy or activation command.
+Existing network commands use the authenticated, audited **Core API**. The new
+`kfe maintenance` group makes two explicit standalone KFE diagnostic reads only.
+There is no direct Bank/DB access, shell deploy or activation command.
 
 Global flags: `--endpoint` (Core HTTPS origin) or `--profile`, `--output text|json|json-pretty`,
 `--timeout 1..120` (default 10 seconds), `--request-id` (ASCII letters/digits/._-,
@@ -86,6 +87,48 @@ Existing commands remain `ledger account inspect ID`, `ledger journal inspect ID
 `p2p order inspect ID`, `onramp order inspect ID`, `reconciliation status`,
 `provider connection validate ID`. These call their existing Core admin routes.
 Use `--help` on the root, cell, update and package groups for command discovery.
+
+## Standalone KFE maintenance diagnostics
+
+These commands require explicit `--kfe-endpoint` (an HTTPS origin), never the Core
+`--endpoint` or `--profile`. Combining Core options with a KFE command is rejected.
+The dedicated runtime credential is `KEROSENE_KFE_ADMIN_TOKEN`; Core's token is
+never reused or forwarded. The session must authenticate a positive ROLE_ADMIN
+identity at the KFE API. Production retains private operator mTLS key/trust stores
+and the existing runtime passwords; no credential is stored in profiles or output.
+KEROSENE_ENVIRONMENT defaults to production; accepted values are production,
+staging and local. Staging requires HTTPS and the dedicated token; production
+additionally requires mTLS. HTTP requires exactly local, explicit localhost or
+127.0.0.1 and --allow-http-local. No redirects, alternative route or credential
+fallback is supported. --verbose does not expose token, response errors or cursor.
+
+| Command | Exact standalone KFE route |
+| --- | --- |
+| `kfe maintenance status` | GET `/api/admin/kfe/maintenance/status` |
+| `kfe maintenance admissions` | GET `/api/admin/kfe/maintenance/admissions?limit=50` |
+
+Admissions accepts `--limit 1..100` and `--cursor NEXT_CURSOR`. The cursor is a
+bounded base64url position marker from the preceding API page, not authority.
+Only one page is fetched; there is no auto-pagination, replay, clear, drain, resume
+or update command in this group. Empty pages and a successful read authorize
+nothing. API payloads are raw versioned diagnostic objects, not Core ApiResponse.
+The client checks schema and admissions diagnosticOnly=true, rejects duplicate
+keys/trailing JSON, caps streamed responses at 256 KiB and applies the configured
+deadline through complete body consumption. It does not independently prove the
+status/entries accurate or provider work complete. HTTP rejection returns 4
+without printing its body; invalid/unavailable responses return nonzero.
+
+```sh
+# Obtain KEROSENE_KFE_ADMIN_TOKEN and mTLS references from the operator's secret
+# manager/session flow; do not paste tokens into this file or command arguments.
+kerosene-jctl --kfe-endpoint https://kfe.example.invalid --output json kfe maintenance status
+kerosene-jctl --kfe-endpoint https://kfe.example.invalid --output json kfe maintenance admissions --limit 50
+kerosene-jctl --kfe-endpoint https://kfe.example.invalid --output json kfe maintenance admissions --limit 50 --cursor NEXT_CURSOR
+```
+
+Replace the illustrative origin and cursor. These are operator diagnostics, not
+Admin artifact installation, an automated KFE recovery policy or a complete Cell
+installer. Consult KFE's service-owned maintenance-admission-diagnostics runbook.
 
 Verification: `./gradlew test installDist --no-daemon --max-workers=1`. Tests cover
 CLI hierarchy/output/transport validation, package signature/hash/path safety and

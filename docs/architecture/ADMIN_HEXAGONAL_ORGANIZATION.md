@@ -2,6 +2,10 @@
 
 This isolated baseline uses the flat `io.kerosene.jctl` package. CLI commands call
 the Core HTTPS client; no command owns service state, deployment or databases.
+The additive KfeMaintenanceCommands/KfeDiagnosticClient pair makes exact
+read-only standalone KFE maintenance requests with separate runtime credentials
+and explicit origin. It does not borrow Core profiles, route arbitrary paths,
+implement financial state or claim deployment authority.
 
 - `Main`: CLI bootstrap.
 - `KeroseneJavaCli`: root options, authenticated Core transport, existing reads.

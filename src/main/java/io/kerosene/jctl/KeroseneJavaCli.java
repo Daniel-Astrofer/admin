@@ -29,11 +29,15 @@ import picocli.CommandLine.Model.CommandSpec;
             KeroseneJavaCli.Onramp.class,
             KeroseneJavaCli.Reconciliation.class,
             KeroseneJavaCli.Provider.class,
-            CellCommands.class
+            CellCommands.class,
+            KfeMaintenanceCommands.class
         })
 public final class KeroseneJavaCli implements Runnable {
     @Option(names = "--endpoint", description = "Core Admin API base URL")
     String endpoint;
+
+    @Option(names = "--kfe-endpoint", description = "Explicit KFE HTTPS origin for read-only maintenance diagnostics; never uses the Core profile")
+    String kfeEndpoint;
 
     @Option(names = "--output", defaultValue = "text", description = "text, json or json-pretty")
     String output;
