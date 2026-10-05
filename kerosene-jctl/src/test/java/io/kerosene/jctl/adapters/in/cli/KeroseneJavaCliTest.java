@@ -1,14 +1,12 @@
-package io.kerosene.jctl;
+package io.kerosene.jctl.adapters.in.cli;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import io.kerosene.jctl.application.port.out.AdminApiClient;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
 class KeroseneJavaCliTest {
@@ -86,6 +84,29 @@ class KeroseneJavaCliTest {
         JsonNode body = mapper.readTree(json);
         String result = KeroseneJavaCli.formatOutput(body, "text");
         assertTrue(result.contains("[2 items]"));
+    }
+
+    @Test
+    void unsupportedOutputModeIsRejected() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode body = mapper.readTree("{\"key\":\"value\"}");
+        Exception e = assertThrows(IllegalArgumentException.class,
+                () -> KeroseneJavaCli.formatOutput(body, "yaml"));
+        assertTrue(e.getMessage().contains("Unsupported output mode: yaml"));
+    }
+
+    @Test
+    void unsupportedOutputModeIsRejectedBeforeApiRequest() {
+        AdminApiClient client = request -> {
+            fail("an unsupported output mode must be rejected before the API request");
+            return null;
+        };
+        KeroseneJavaCli cli = new KeroseneJavaCli(client);
+        cli.endpoint = "https://admin.example";
+        cli.output = "yaml";
+
+        Exception e = assertThrows(IllegalArgumentException.class, () -> cli.get("/test"));
+        assertTrue(e.getMessage().contains("Unsupported output mode: yaml"));
     }
 
     @Test
@@ -297,30 +318,5 @@ class KeroseneJavaCliTest {
         KeroseneJavaCli cli = new KeroseneJavaCli();
         new CommandLine(cli).execute("--help");
         assertEquals("text", cli.output);
-    }
-
-    // -- Main class smoke test
-
-    @Test
-    void mainExecutesHelpSuccessfully() {
-        assertEquals(0, new CommandLine(new KeroseneJavaCli()).execute("--help"));
-    }
-
-    // -- Profile tests
-
-    @Test
-    void profileContainsEndpointsButNoCredentials(@TempDir Path directory) throws Exception {
-        Path path = directory.resolve("profiles.toml");
-        Files.writeString(
-                path,
-                """
-                [profiles.production]
-                environment = "production"
-                core_endpoint = "https://core.example.onion"
-                """);
-
-        var profile = ProfileLoader.load("production", path);
-        assertEquals("production", profile.environment());
-        assertEquals("https://core.example.onion", profile.endpoint());
     }
 }

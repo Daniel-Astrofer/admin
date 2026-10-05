@@ -1,4 +1,4 @@
-package io.kerosene.jctl;
+package io.kerosene.jctl.adapters.out.config;
 
 import static org.junit.jupiter.api.Assertions.*;
 

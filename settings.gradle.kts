@@ -1,1 +1,2 @@
-rootProject.name = "kerosene-jctl"
+rootProject.name = "admin"
+include("kerosene-jctl")
