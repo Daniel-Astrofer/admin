@@ -1,4 +1,4 @@
-package io.kerosene.jctl;
+package io.kerosene.jctl.adapters.out.config;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -7,12 +7,22 @@ import org.tomlj.Toml;
 import org.tomlj.TomlParseResult;
 import org.tomlj.TomlTable;
 
-final class ProfileLoader {
-    record Profile(String environment, String endpoint) {}
+/** Reads named operator endpoint profiles without storing credentials in the profile. */
+public final class ProfileLoader {
+    /** Endpoint and environment settings resolved for one named profile.
+     * @param environment environment label used for production safeguards
+     * @param endpoint base URI of the service admin API
+     */
+    public record Profile(String environment, String endpoint) {}
 
     private ProfileLoader() {}
 
-    static Profile load(String name) throws IOException {
+    /** Loads a profile from the configured file or the user's default config path.
+     * @param name profile key (letters, digits, underscore and hyphen only)
+     * @return resolved profile settings
+     * @throws IOException when the selected file cannot be read
+     */
+    public static Profile load(String name) throws IOException {
         if (name == null || !name.matches("[A-Za-z0-9_-]+")) {
             throw new IllegalArgumentException("Invalid profile name");
         }
@@ -23,7 +33,13 @@ final class ProfileLoader {
         return load(name, path);
     }
 
-    static Profile load(String name, Path path) throws IOException {
+    /** Parses and validates a named profile from an explicit TOML file.
+     * @param name profile key (letters, digits, underscore and hyphen only)
+     * @param path TOML file containing a {@code profiles.<name>} table
+     * @return endpoint and environment settings
+     * @throws IOException when the file cannot be read
+     */
+    public static Profile load(String name, Path path) throws IOException {
         if (name == null || !name.matches("[A-Za-z0-9_-]+")) {
             throw new IllegalArgumentException("Invalid profile name");
         }
@@ -42,7 +58,11 @@ final class ProfileLoader {
         return new Profile(table.getString("environment", () -> "production"), endpoint);
     }
 
-    static void requirePrivateRegularFile(String property) throws IOException {
+    /** Requires a configured regular TLS file and forbids group/other access to a keystore.
+     * @param property JVM system-property name containing the file path
+     * @throws IOException when filesystem permissions cannot be inspected
+     */
+    public static void requirePrivateRegularFile(String property) throws IOException {
         String value = System.getProperty(property);
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("Missing JVM mTLS property: " + property);

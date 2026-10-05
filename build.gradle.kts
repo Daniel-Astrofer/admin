@@ -26,7 +26,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("io.kerosene.jctl.Main")
+    mainClass.set("io.kerosene.jctl.bootstrap.Main")
 }
 
 tasks.withType<Test> {
